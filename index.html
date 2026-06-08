@@ -214,6 +214,7 @@ input[type=number]{font-family:var(--mono);font-size:16px;}
   <button class="tab" onclick="switchTab('fondo')" id="t-fondo">Fondo Papá</button>
   <button class="tab" onclick="switchTab('ahorro')" id="t-ahorro">Ahorro</button>
   <button class="tab" onclick="switchTab('prestamos')" id="t-prestamos">Préstamos</button>
+  <button class="tab" onclick="switchTab('exportar')" id="t-exportar">Exportar</button>
   <button class="tab" onclick="switchTab('plan')" id="t-plan">Plan</button>
 </div>
 
@@ -605,6 +606,29 @@ input[type=number]{font-family:var(--mono);font-size:16px;}
 
 </div>
 
+
+<!-- ═══════════════ TAB: EXPORTAR ═══════════════ -->
+<div class="sec" id="tab-exportar">
+
+  <div class="card" style="margin-bottom:14px;">
+    <div class="sl">Selecciona el mes a exportar</div>
+    <div style="display:flex;align-items:center;gap:10px;margin-top:4px;">
+      <input type="month" id="exp-mes" style="flex:1;font-family:var(--mono);font-size:15px;">
+    </div>
+  </div>
+
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px;">
+    <button class="btn" onclick="exportarPDF()" style="display:flex;align-items:center;justify-content:center;gap:8px;">
+      <span style="font-size:18px;">📄</span> Exportar PDF
+    </button>
+    <button class="btn" onclick="exportarCSV()" style="background:var(--gr);display:flex;align-items:center;justify-content:center;gap:8px;">
+      <span style="font-size:18px;">📊</span> Exportar Excel
+    </button>
+  </div>
+
+  <div id="exp-preview"></div>
+</div>
+
 </div><!-- /app -->
 
 <!-- MODAL: EDIT DEUDA -->
@@ -644,6 +668,7 @@ input[type=number]{font-family:var(--mono);font-size:16px;}
   <button class="nb" onclick="switchTab('fondo')" id="n-fondo"><span class="nb-icon">👨</span>Papá</button>
   <button class="nb" onclick="switchTab('ahorro')" id="n-ahorro"><span class="nb-icon">🏦</span>Ahorro</button>
   <button class="nb" onclick="switchTab('prestamos')" id="n-prestamos"><span class="nb-icon">🤝</span>Préstamos</button>
+  <button class="nb" onclick="switchTab('exportar')" id="n-exportar"><span class="nb-icon">📤</span>Exportar</button>
   <button class="nb" onclick="switchTab('plan')" id="n-plan"><span class="nb-icon">🎯</span>Mi Plan</button>
 </div>
 
@@ -713,7 +738,7 @@ function changeViewMonth(dir){
 }
 
 function switchTab(name){
-  ['gastos','planeados','resumen','deudas','ingresos','fondo','ahorro','prestamos','plan'].forEach(t=>{
+  ['gastos','planeados','resumen','deudas','ingresos','fondo','ahorro','prestamos','exportar','plan'].forEach(t=>{
     document.getElementById('tab-'+t).classList.toggle('active', t===name);
     document.getElementById('t-'+t).classList.toggle('active', t===name);
     document.getElementById('n-'+t).classList.toggle('active', t===name);
@@ -1293,6 +1318,195 @@ function renderFondoPapa(){
       '</div>'
     ).join('');
   }
+}
+
+
+// ═══ EXPORTAR ═══
+function getExportData(mes){
+  const gs = gastos.filter(g=>g.date.startsWith(mes));
+  const ex = extras.filter(e=>e.month===mes);
+  const pg = pagos.filter(p=>p.mes===mes);
+  const ab = abonos.filter(a=>a.date.startsWith(mes));
+  const pr = planeados.filter(p=>p.date.startsWith(mes));
+  const totalIngresos = INGRESOS_FIJOS + ex.reduce((a,e)=>a+e.amount,0);
+  const totalGastos = gs.filter(g=>g.cat!=='papa').reduce((a,g)=>a+g.amount,0);
+  const totalDeudas = pg.reduce((a,p)=>a+p.pago,0);
+  const totalAhorro = ab.reduce((a,b)=>a+b.amount,0);
+  const saldo = totalIngresos - totalGastos - totalDeudas - totalAhorro;
+  return {gs, ex, pg, ab, pr, totalIngresos, totalGastos, totalDeudas, totalAhorro, saldo};
+}
+
+function mesLabel(mes){
+  return new Date(mes+'-15').toLocaleDateString('es-EC',{month:'long',year:'numeric'});
+}
+
+function exportarCSV(){
+  const mes = document.getElementById('exp-mes').value;
+  if(!mes){ toast('Selecciona un mes'); return; }
+  const {gs,ex,pg,ab,pr,totalIngresos,totalGastos,totalDeudas,totalAhorro,saldo} = getExportData(mes);
+  const cat = id => CATS.find(c=>c.id===id)?.name || id;
+
+  let csv = 'ESTADO DE CUENTA — ' + mesLabel(mes).toUpperCase() + '\n\n';
+
+  // Resumen
+  csv += 'RESUMEN\n';
+  csv += 'Concepto,Monto\n';
+  csv += 'Ingresos totales,' + totalIngresos.toFixed(2) + '\n';
+  csv += 'Total gastos,' + totalGastos.toFixed(2) + '\n';
+  csv += 'Pagos de deudas,' + totalDeudas.toFixed(2) + '\n';
+  csv += 'Abonos al ahorro,' + totalAhorro.toFixed(2) + '\n';
+  csv += 'Saldo disponible,' + saldo.toFixed(2) + '\n\n';
+
+  // Ingresos
+  csv += 'INGRESOS\n';
+  csv += 'Descripción,Monto,Fecha\n';
+  csv += 'Sueldo fijo,' + INGRESOS_FIJOS.toFixed(2) + ',—\n';
+  ex.forEach(e=>{ csv += e.desc + ',' + e.amount.toFixed(2) + ',' + e.date + '\n'; });
+  csv += '\n';
+
+  // Gastos
+  csv += 'GASTOS\n';
+  csv += 'Fecha,Descripción,Categoría,Monto\n';
+  gs.filter(g=>g.cat!=='papa').forEach(g=>{
+    csv += g.date + ',' + g.desc.replace(/,/g,';') + ',' + cat(g.cat) + ',' + g.amount.toFixed(2) + '\n';
+  });
+  csv += '\n';
+
+  // Deudas
+  csv += 'PAGOS DE DEUDAS\n';
+  csv += 'Deuda,Monto Pagado,Fecha,Mes\n';
+  pg.forEach(p=>{ csv += p.name + ',' + p.pago.toFixed(2) + ',' + (p.fecha||'—') + ',' + p.mes + '\n'; });
+  csv += '\n';
+
+  // Ahorro
+  csv += 'AHORRO\n';
+  csv += 'Descripción,Monto,Fecha\n';
+  ab.forEach(a=>{ csv += a.desc + ',' + a.amount.toFixed(2) + ',' + a.date + '\n'; });
+  csv += '\n';
+
+  // Planeados
+  csv += 'GASTOS PLANEADOS\n';
+  csv += 'Descripción,Categoría,Monto,Fecha\n';
+  pr.forEach(p=>{ csv += p.desc.replace(/,/g,';') + ',' + cat(p.cat) + ',' + p.amount.toFixed(2) + ',' + p.date + '\n'; });
+  csv += '\n';
+
+  // Préstamos otorgados
+  csv += 'PRÉSTAMOS OTORGADOS\n';
+  csv += 'Deudor,Monto Prestado,Por Cobrar,Cuota,Nota\n';
+  prestamos.forEach(p=>{ csv += p.nombre + ',' + p.monto.toFixed(2) + ',' + p.saldoPendiente.toFixed(2) + ',' + (p.cuota||0).toFixed(2) + ',' + (p.nota||'') + '\n'; });
+  csv += '\n';
+
+  // Saldos de deudas actuales
+  csv += 'SALDOS DE DEUDAS\n';
+  csv += 'Deuda,Saldo Actual,Cuota\n';
+  Object.values(debts).forEach(d=>{ csv += d.name + ',' + d.saldo.toFixed(2) + ',' + (d.cuota||0).toFixed(2) + '\n'; });
+
+  // Download
+  const blob = new Blob(['\uFEFF'+csv], {type:'text/csv;charset=utf-8;'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'estado-cuenta-' + mes + '.csv';
+  a.click();
+  URL.revokeObjectURL(url);
+  toast('Excel descargado ✓');
+  renderExportPreview(mes);
+}
+
+function exportarPDF(){
+  const mes = document.getElementById('exp-mes').value;
+  if(!mes){ toast('Selecciona un mes'); return; }
+  renderExportPreview(mes);
+  setTimeout(()=>{
+    const preview = document.getElementById('exp-preview');
+    if(!preview) return;
+    const originalBody = document.body.innerHTML;
+    const printContent = `
+      <html><head><title>Estado de Cuenta ${mesLabel(mes)}</title>
+      <style>
+        body{font-family:Arial,sans-serif;font-size:12px;color:#111;margin:20px;}
+        h1{font-size:18px;margin-bottom:4px;}
+        h2{font-size:13px;margin:16px 0 6px;border-bottom:1px solid #ccc;padding-bottom:3px;color:#333;}
+        table{width:100%;border-collapse:collapse;margin-bottom:12px;}
+        th{background:#f0f0f0;text-align:left;padding:5px 8px;font-size:11px;border:1px solid #ddd;}
+        td{padding:4px 8px;border:1px solid #eee;font-size:11px;}
+        .summary{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:16px;}
+        .sum-box{background:#f8f8f8;border:1px solid #ddd;border-radius:6px;padding:10px;text-align:center;}
+        .sum-lbl{font-size:10px;color:#666;margin-bottom:3px;}
+        .sum-val{font-size:16px;font-weight:bold;}
+        .ok{color:#2a7a4a;} .re{color:#c03030;} .bl{color:#2050a0;}
+        @media print{body{margin:10px;}}
+      </style></head><body>${preview.innerHTML}</body></html>`;
+    const w = window.open('','_blank');
+    w.document.write(printContent);
+    w.document.close();
+    w.focus();
+    setTimeout(()=>{ w.print(); }, 500);
+    toast('Abriendo PDF ✓');
+  }, 300);
+}
+
+function renderExportPreview(mes){
+  const {gs,ex,pg,ab,pr,totalIngresos,totalGastos,totalDeudas,totalAhorro,saldo} = getExportData(mes);
+  const cat = id => CATS.find(c=>c.id===id)?.name || id;
+  const fmtN = n => '$'+parseFloat(n||0).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g,'.');
+
+  let html = `
+    <h1>Estado de Cuenta</h1>
+    <p style="color:#666;font-size:12px;margin-bottom:16px;">${mesLabel(mes).toUpperCase()} · Generado ${new Date().toLocaleDateString('es-EC')}</p>
+
+    <div class="summary">
+      <div class="sum-box"><div class="sum-lbl">Ingresos</div><div class="sum-val ok">${fmtN(totalIngresos)}</div></div>
+      <div class="sum-box"><div class="sum-lbl">Gastos + Deudas</div><div class="sum-val re">${fmtN(totalGastos+totalDeudas)}</div></div>
+      <div class="sum-box"><div class="sum-lbl">Saldo final</div><div class="sum-val ${saldo>=0?'ok':'re'}">${fmtN(saldo)}</div></div>
+    </div>
+
+    <h2>💰 Ingresos</h2>
+    <table><tr><th>Descripción</th><th>Monto</th><th>Fecha</th></tr>
+    <tr><td>Sueldo fijo</td><td>${fmtN(INGRESOS_FIJOS)}</td><td>—</td></tr>
+    ${ex.map(e=>`<tr><td>${e.desc}</td><td>${fmtN(e.amount)}</td><td>${e.date}</td></tr>`).join('')}
+    <tr style="font-weight:bold;background:#f0f0f0;"><td>Total</td><td>${fmtN(totalIngresos)}</td><td></td></tr>
+    </table>
+
+    <h2>💸 Gastos del mes</h2>
+    <table><tr><th>Fecha</th><th>Descripción</th><th>Categoría</th><th>Monto</th></tr>
+    ${gs.filter(g=>g.cat!=='papa').map(g=>`<tr><td>${g.date}</td><td>${g.desc}</td><td>${cat(g.cat)}</td><td>${fmtN(g.amount)}</td></tr>`).join('')||'<tr><td colspan="4" style="color:#999;text-align:center;">Sin gastos</td></tr>'}
+    <tr style="font-weight:bold;background:#f0f0f0;"><td colspan="3">Total gastos</td><td>${fmtN(totalGastos)}</td></tr>
+    </table>
+
+    <h2>💳 Pagos de deudas</h2>
+    <table><tr><th>Deuda</th><th>Monto Pagado</th><th>Fecha</th></tr>
+    ${pg.map(p=>`<tr><td>${p.name}</td><td>${fmtN(p.pago)}</td><td>${p.fecha||'—'}</td></tr>`).join('')||'<tr><td colspan="3" style="color:#999;text-align:center;">Sin pagos</td></tr>'}
+    <tr style="font-weight:bold;background:#f0f0f0;"><td colspan="2">Total pagado</td><td>${fmtN(totalDeudas)}</td></tr>
+    </table>
+
+    <h2>🏦 Ahorro</h2>
+    <table><tr><th>Descripción</th><th>Monto</th><th>Fecha</th></tr>
+    ${ab.map(a=>`<tr><td>${a.desc}</td><td>${fmtN(a.amount)}</td><td>${a.date}</td></tr>`).join('')||'<tr><td colspan="3" style="color:#999;text-align:center;">Sin abonos</td></tr>'}
+    <tr style="font-weight:bold;background:#f0f0f0;"><td colspan="2">Total ahorrado</td><td>${fmtN(totalAhorro)}</td></tr>
+    </table>
+
+    <h2>📅 Gastos planeados</h2>
+    <table><tr><th>Descripción</th><th>Categoría</th><th>Monto</th><th>Fecha</th></tr>
+    ${pr.map(p=>`<tr><td>${p.desc}</td><td>${cat(p.cat)}</td><td>${fmtN(p.amount)}</td><td>${p.date}</td></tr>`).join('')||'<tr><td colspan="4" style="color:#999;text-align:center;">Sin planeados</td></tr>'}
+    </table>
+
+    <h2>🤝 Préstamos otorgados</h2>
+    <table><tr><th>Deudor</th><th>Prestado</th><th>Por cobrar</th><th>Cuota</th></tr>
+    ${prestamos.map(p=>`<tr><td>${p.nombre}</td><td>${fmtN(p.monto)}</td><td>${fmtN(p.saldoPendiente)}</td><td>${fmtN(p.cuota||0)}</td></tr>`).join('')||'<tr><td colspan="4" style="color:#999;text-align:center;">Sin préstamos</td></tr>'}
+    </table>
+
+    <h2>📊 Saldos de deudas actuales</h2>
+    <table><tr><th>Deuda</th><th>Saldo actual</th><th>Cuota mensual</th></tr>
+    ${Object.values(debts).map(d=>`<tr><td>${d.name}</td><td>${fmtN(d.saldo)}</td><td>${fmtN(d.cuota||0)}</td></tr>`).join('')}
+    </table>`;
+
+  const preview = document.getElementById('exp-preview');
+  preview.innerHTML = `
+    <div class="sl sl-mt">Vista previa</div>
+    <div style="background:white;color:#111;border-radius:var(--rl);padding:20px;font-family:Arial,sans-serif;font-size:12px;overflow-x:auto;">
+      ${html}
+    </div>`;
 }
 
 // ═══════════════════════════════════
