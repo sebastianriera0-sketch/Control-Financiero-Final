@@ -1533,27 +1533,34 @@ function render(){
   const FINMES = 344.96; // $50 novia se registra manualmente como ingreso extra
   const QUINCENA = 300.00;
 
-  const gastosFinMes   = gastos.filter(g=>g.date.startsWith(ms) && parseInt(g.date.slice(8,10))<=15 && g.cat!=='papa').reduce((a,g)=>a+g.amount,0);
-  const gastosQuincena = gastos.filter(g=>g.date.startsWith(ms) && parseInt(g.date.slice(8,10))>15 && g.cat!=='papa').reduce((a,g)=>a+g.amount,0);
+  // ═══ SALDO EN CASCADA (como cuenta bancaria) ═══
+  // Junta todos los movimientos del mes en orden cronológico.
+  // Cada movimiento se resta primero del saldo "fin de mes"; si se agota,
+  // el sobrante se resta del saldo "quincena". Los extras se suman al
+  // saldo "fin de mes" primero (es el que entra primero, día 31/1).
+  const extrasMesTotal = extras.filter(e=>e.month===ms).reduce((a,e)=>a+e.amount,0);
 
-  // Extras por período
-  const extrasFinMes   = extras.filter(e=>e.month===ms && parseInt(e.date.slice(8,10))<=15).reduce((a,e)=>a+e.amount,0);
-  const extrasQuincena = extras.filter(e=>e.month===ms && parseInt(e.date.slice(8,10))>15).reduce((a,e)=>a+e.amount,0);
+  const movimientos = [];
+  gastos.filter(g=>g.date.startsWith(ms) && g.cat!=='papa').forEach(g=>movimientos.push({date:g.date, amount:g.amount}));
+  planeados.filter(p=>p.date.startsWith(ms)).forEach(p=>movimientos.push({date:p.date, amount:p.amount}));
+  pagos.filter(p=>p.mes===ms).forEach(p=>movimientos.push({date:p.fecha||(ms+'-01'), amount:p.pago}));
+  abonos.filter(a=>a.date.startsWith(ms)).forEach(a=>movimientos.push({date:a.date, amount:a.amount}));
+  // Ordenar por fecha
+  movimientos.sort((a,b)=>a.date.localeCompare(b.date));
 
-  // Planeados por período (se restan del saldo disponible)
-  const planeadosFinMes   = planeados.filter(p=>p.date.startsWith(ms) && parseInt(p.date.slice(8,10))<=15).reduce((a,p)=>a+p.amount,0);
-  const planeadosQuincena = planeados.filter(p=>p.date.startsWith(ms) && parseInt(p.date.slice(8,10))>15).reduce((a,p)=>a+p.amount,0);
-
-  // Pagos de deudas por período (restan del saldo según fecha del pago)
-  const pagosFinMes   = pagos.filter(p=>p.mes===ms && p.fecha && parseInt(p.fecha.slice(8,10))<=15).reduce((a,p)=>a+p.pago,0);
-  const pagosQuincena = pagos.filter(p=>p.mes===ms && p.fecha && parseInt(p.fecha.slice(8,10))>15).reduce((a,p)=>a+p.pago,0);
-
-  // Abonos de ahorro por período
-  const abonosFinMes   = abonos.filter(a=>a.date.startsWith(ms) && parseInt(a.date.slice(8,10))<=15).reduce((a,b)=>a+b.amount,0);
-  const abonosQuincena = abonos.filter(a=>a.date.startsWith(ms) && parseInt(a.date.slice(8,10))>15).reduce((a,b)=>a+b.amount,0);
-
-  const saldoFinMes   = Math.max(0, FINMES + extrasFinMes - gastosFinMes - planeadosFinMes - pagosFinMes - abonosFinMes);
-  const saldoQuincena = Math.max(0, QUINCENA + extrasQuincena - gastosQuincena - planeadosQuincena - pagosQuincena - abonosQuincena);
+  let saldoFinMes   = FINMES + extrasMesTotal;
+  let saldoQuincena = QUINCENA;
+  movimientos.forEach(mv=>{
+    if(saldoFinMes >= mv.amount){
+      saldoFinMes -= mv.amount;
+    } else {
+      const resto = mv.amount - saldoFinMes;
+      saldoFinMes = 0;
+      saldoQuincena -= resto;
+    }
+  });
+  saldoFinMes   = Math.max(0, saldoFinMes);
+  saldoQuincena = Math.max(0, saldoQuincena);
 
   // Pagos de deudas registrados este mes
   const pagosMes = pagos.filter(p=>p.mes===ms).reduce((a,p)=>a+p.pago, 0);
